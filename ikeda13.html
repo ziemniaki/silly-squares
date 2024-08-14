@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WELCOME TO SILLY SQUARES </title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #canvas {
+            background-color: #111;
+        }
+        #controls {
+            position: absolute;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #fff;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="controls">
+        <h1>WELCOME TO SILLY SQUARES! generative audio app</h1>
+        <p>Click the button to start/stop the audio.</p>
+        <button id="audioControl">Start</button>
+        <button id="freezeButton">Freeze</button>
+        <button id="sillyTimeButton">Silly Time</button>
+        <button id="drumsButton">DRUMS!</button>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        let audioContext;
+        let isPlaying = false;
+        let interval;
+        let freezeActive = false;
+        let sillyTimeActive = false;
+        let drumsActive = false;
+        let lastSequence = [];
+        let currentSineFrequency;
+        let snakeColor = 'lime';
+        const snakeTraces = [];
+        let backgroundColor = [0, 0, 0]; // Initial background color as an RGB array
+
+        // Snake game variables
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const gridSize = 20;
+        let snake = [{ x: 10, y: 10 }];
+        let direction = 'right';
+        let frozenDirection = direction; // Store the direction when freeze is activated
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        function initAudioContext() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                document.getElementById('status').textContent = 'AudioContext initialized.';
+            } catch (e) {
+                document.getElementById('status').textContent = 'Failed to initialize AudioContext: ' + e.message;
+                console.error('AudioContext error:', e);
+            }
+        }
+
+        function getRandomColor() {
+            return [
+                Math.floor(Math.random() * 256),
+                Math.floor(Math.random() * 256),
+                Math.floor(Math.random() * 256),
+            ];
+        }
+
+        function getRandomPosition() {
+            const x = Math.floor(Math.random() * (canvas.width / gridSize));
+            const y = Math.floor(Math.random() * (canvas.height / gridSize));
+            return { x, y };
+        }
+
+        function resetSnake() {
+            const startPosition = getRandomPosition();
+            leaveSnakeTrace(snake[0].x, snake[0].y, snakeColor);
+            generateHighPitchedSine(); // Generate the high-pitched sine wave
+            snake = [{ x: startPosition.x, y: startPosition.y }];
+            snakeColor = getRandomColorString(); // Convert to hex string for drawing
+            direction = 'right'; // Reset direction to default
+            frozenDirection = direction; // Ensure freeze direction is reset
+        }
+
+        function getRandomColorString() {
+            const colorArray = getRandomColor();
+            return `rgb(${colorArray[0]}, ${colorArray[1]}, ${colorArray[2]})`;
+        }
+
+        function leaveSnakeTrace(x, y, color) {
+            const traceSize = 2; // 16 squares around the place of the kill
+            for (let i = -traceSize; i <= traceSize; i++) {
+                for (let j = -traceSize; j <= traceSize; j++) {
+                    snakeTraces.push({ x: x + i, y: y + j, color });
+                }
+            }
+        }
+
+        function generateHighPitchedSine() {
+            const highFreq = Math.random() * 5000 + 1000; // Frequency above 1kHz
+            const oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(highFreq, audioContext.currentTime);
+
+            const gainNode = audioContext.createGain();
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 25); // Sustain for 25 seconds
+        }
+
+        function updateSnakeDirection() {
+            if (freezeActive) {
+                direction = frozenDirection; // Maintain the frozen direction
+            } else {
+                const frequencyRange = 500; // Max - Min range: 700 (200 to 700)
+                const range = frequencyRange / 4;
+
+                if (currentSineFrequency < 200 + range) {
+                    direction = 'down';
+                } else if (currentSineFrequency < 200 + 2 * range) {
+                    direction = 'left';
+                } else if (currentSineFrequency < 200 + 3 * range) {
+                    direction = 'right';
+                } else {
+                    direction = 'up';
+                }
+
+                frozenDirection = direction; // Update the frozen direction if not frozen
+            }
+        }
+
+        function moveSnake() {
+            const head = { ...snake[0] };
+            if (direction === 'right') head.x += 1;
+            if (direction === 'left') head.x -= 1;
+            if (direction === 'up') head.y -= 1;
+            if (direction === 'down') head.y += 1;
+
+            // Wrap snake around the screen
+            head.x = (head.x + canvas.width / gridSize) % (canvas.width / gridSize);
+            head.y = (head.y + canvas.height / gridSize) % (canvas.height / gridSize);
+
+            snake.unshift(head);
+            snake.pop();
+        }
+
+        function drawSnake() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw snake traces
+            snakeTraces.forEach(trace => {
+                ctx.fillStyle = trace.color;
+                ctx.fillRect(trace.x * gridSize, trace.y * gridSize, gridSize, gridSize);
+            });
+
+            // Draw snake
+            ctx.fillStyle = snakeColor;
+            snake.forEach(segment => {
+                ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize, gridSize);
+            });
+        }
+
+        function generateNoise() {
+            if (Math.random() < 0.4) { // 40% chance to generate noise
+                const bufferSize = 2 * audioContext.sampleRate;
+                const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    output[i] = Math.random() * 2 - 1;
+                }
+
+                const whiteNoise = audioContext.createBufferSource();
+                whiteNoise.buffer = noiseBuffer;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.setValueAtTime(Math.random(), audioContext.currentTime); // Randomized volume
+
+                whiteNoise.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                whiteNoise.start();
+                whiteNoise.stop(audioContext.currentTime + 0.1); // Short noise burst
+            }
+        }
+
+        function lightenColor(color, amount) {
+            return color.map(channel => Math.min(channel + amount, 255));
+        }
+
+        function updateBackgroundColor() {
+            backgroundColor = lightenColor(backgroundColor, 1); // Lighten by 1 each step
+            const colorString = `rgb(${backgroundColor[0]}, ${backgroundColor[1]}, ${backgroundColor[2]})`;
+            document.body.style.backgroundColor = colorString;
+            canvas.style.backgroundColor = colorString;
+        }
+
+        function generateGlitchySound() {
+            const now = audioContext.currentTime;
+
+            const clickFrequency = Math.random() * 1000 + 1000;
+            currentSineFrequency = Math.random() * 500 + 200;
+
+            if (!freezeActive) {
+                lastSequence = [clickFrequency, currentSineFrequency];
+            }
+
+            const [clickFreq, sineFreq] = freezeActive ? lastSequence : [clickFrequency, currentSineFrequency];
+
+            // Update snake direction based on sine frequency
+            updateSnakeDirection();
+            moveSnake();
+            drawSnake();
+
+            if (drumsActive) {
+                generateNoise();
+                updateBackgroundColor();
+            }
+
+            // Create a glitchy click
+            const clickOscillator = audioContext.createOscillator();
+            clickOscillator.type = 'square';
+            clickOscillator.frequency.setValueAtTime(clickFreq, now);
+
+            const clickGain = audioContext.createGain();
+            clickGain.gain.setValueAtTime(1, now);
+            clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+
+            clickOscillator.connect(clickGain);
+            clickGain.connect(audioContext.destination);
+            clickOscillator.start(now);
+            clickOscillator.stop(now + 0.02);
+
+            // Create an abstract sine wave
+            const sineOscillator = audioContext.createOscillator();
+            sineOscillator.type = 'sine';
+            sineOscillator.frequency.setValueAtTime(sineFreq, now);
+
+            const sineGain = audioContext.createGain();
+            sineGain.gain.setValueAtTime(0.1, now);
+            sineGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+            sineOscillator.connect(sineGain);
+            sineGain.connect(audioContext.destination);
+            sineOscillator.start(now);
+            sineOscillator.stop(now + 0.5);
+        }
+
+        function startAudio() {
+            if (!audioContext) {
+                initAudioContext();
+            }
+            resetSnake(); // Reset snake's position and color
+            const baseInterval = 100;
+            interval = setInterval(() => {
+                if (sillyTimeActive) {
+                    clearInterval(interval);
+                    interval = setInterval(generateGlitchySound, Math.random() * 500 + 50);
+                }
+                generateGlitchySound();
+            }, baseInterval);
+            isPlaying = true;
+            document.getElementById('status').textContent = 'Audio playing...';
+        }
+
+        function stopAudio() {
+            clearInterval(interval);
+            isPlaying = false;
+            sillyTimeActive = false; // Reset silly time when stopping
+            drumsActive = false; // Reset drums when stopping
+            document.getElementById('status').textContent = 'Audio stopped.';
+            document.body.style.backgroundColor = '#000'; // Reset background color
+            canvas.style.backgroundColor = '#111'; // Reset canvas color
+            backgroundColor = [0, 0, 0]; // Reset to initial color
+        }
+
+        document.getElementById('audioControl').addEventListener('click', () => {
+            if (!audioContext) {
+                initAudioContext();
+            }
+            if (isPlaying) {
+                stopAudio();
+                document.getElementById('audioControl').textContent = 'Start';
+            } else {
+                startAudio();
+                document.getElementById('audioControl').textContent = 'Stop';
+            }
+        });
+
+        document.getElementById('freezeButton').addEventListener('click', () => {
+            freezeActive = !freezeActive;
+            document.getElementById('status').textContent = freezeActive ? 'Freeze active' : 'Freeze inactive';
+        });
+
+        document.getElementById('sillyTimeButton').addEventListener('click', () => {
+            sillyTimeActive = !sillyTimeActive;
+            document.getElementById('status').textContent = sillyTimeActive ? 'Silly Time active' : 'Silly Time inactive';
+        });
+
+        document.getElementById('drumsButton').addEventListener('click', () => {
+            drumsActive = !drumsActive;
+            if (drumsActive) {
+                backgroundColor = getRandomColor(); // Set initial random color
+            }
+            document.getElementById('status').textContent = drumsActive ? 'DRUMS active!' : 'DRUMS inactive';
+            if (!drumsActive) {
+                document.body.style.backgroundColor = '#000'; // Reset background color
+                canvas.style.backgroundColor = '#111'; // Reset canvas color
+                backgroundColor = [0, 0, 0]; // Reset to initial color
+            }
+        });
+
+    </script>
+</body>
+</html>
